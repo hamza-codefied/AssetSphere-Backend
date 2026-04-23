@@ -1,0 +1,655 @@
+{
+  "info": {
+    "_postman_id": "5ce1f8f4-7368-4138-a90f-4d9f45898f8d",
+    "name": "AssetSphere API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Main collection for module-by-module backend testing."
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const openPaths = ['/api/v1/health', '/api/v1/auth/login', '/api/v1/auth/refresh'];",
+          "const path = pm.request.url.getPath();",
+          "if (!pm.collectionVariables.get('accessToken') && !openPaths.includes(path)) {",
+          "  console.log('No accessToken yet. Run Auth/Login first.');",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "00 - Bootstrap",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 - Auth",
+      "item": [
+        {
+          "name": "Login (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json().data;",
+                  "pm.collectionVariables.set('accessToken', data.accessToken);",
+                  "pm.collectionVariables.set('refreshToken', data.refreshToken);",
+                  "pm.test('login success', function () {",
+                  "  pm.expect(data.accessToken).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/auth/login"
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json().data;",
+                  "pm.collectionVariables.set('accessToken', data.accessToken);",
+                  "pm.collectionVariables.set('refreshToken', data.refreshToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/auth/refresh"
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/auth/me"
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/auth/logout"
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Employees",
+      "description": "Employees are the unified user model. Admin is seeded automatically. Admin-only endpoints create pmo/dev employees with login credentials.",
+      "item": [
+        {
+          "name": "List Employees",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/employees"
+          }
+        },
+        {
+          "name": "Get Employee",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/employees/{{employeeId}}"
+          }
+        },
+        {
+          "name": "Create Employee (PMO)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json().data;",
+                  "if (data && data.id) pm.collectionVariables.set('employeeId', data.id);",
+                  "pm.test('created pmo', () => pm.expect(data.role).to.eql('pmo'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Aisha Khan\",\n  \"email\": \"aisha@assetsphere.com\",\n  \"password\": \"Secret@123\",\n  \"role\": \"pmo\",\n  \"department\": \"Project Management\",\n  \"phone\": \"+92-300-0000000\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/employees"
+          }
+        },
+        {
+          "name": "Create Employee (Dev)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Hamza Ali\",\n  \"email\": \"hamza@assetsphere.com\",\n  \"password\": \"Secret@123\",\n  \"role\": \"dev\",\n  \"department\": \"Engineering\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/employees"
+          }
+        },
+        {
+          "name": "Update Employee",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"department\": \"Platform Engineering\",\n  \"phone\": \"+92-301-1111111\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/employees/{{employeeId}}"
+          }
+        },
+        {
+          "name": "Offboard Employee",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"Offboarding test via Postman\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/employees/{{employeeId}}/offboard"
+          }
+        },
+        {
+          "name": "Delete Employee",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/employees/{{employeeId}}"
+          }
+        },
+        {
+          "name": "Login as Created Employee",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json().data;",
+                  "pm.test('employee can login', () => pm.expect(data.accessToken).to.be.a('string'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"aisha@assetsphere.com\",\n  \"password\": \"Secret@123\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/auth/login"
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 - Accounts",
+      "item": [
+        {
+          "name": "List Accounts",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/accounts"
+          }
+        },
+        {
+          "name": "Create Account",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json().data;",
+                  "if (data && data.id) pm.collectionVariables.set('accountId', data.id);",
+                  "pm.test('account created', () => pm.expect(data.email).to.eql('ops-admin@assetsphere.com'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"Gmail\",\n  \"name\": \"Ops Admin\",\n  \"email\": \"ops-admin@assetsphere.com\",\n  \"status\": \"Active\",\n  \"isCompanyOwned\": true,\n  \"credentials\": {\n    \"email\": \"ops-admin@assetsphere.com\",\n    \"password\": \"OpsSecret@123\",\n    \"lastUpdated\": \"2026-04-22\",\n    \"customFields\": [\n      { \"key\": \"Tenant ID\", \"value\": \"tenant-prod-01\" },\n      { \"key\": \"API Token\", \"value\": \"ops-token-123\" }\n    ],\n    \"twoFactor\": {\n      \"type\": \"Authenticator\",\n      \"issuer\": \"Google Authenticator\",\n      \"secret\": \"JBSWY3DPEHPK3PXP\",\n      \"backupCodes\": [\"ABCD-EFGH\", \"IJKL-MNOP\"],\n      \"enrolledAt\": \"2026-04-22\"\n    }\n  }\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/accounts"
+          }
+        },
+        {
+          "name": "Get Account",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/accounts/{{accountId}}"
+          }
+        },
+        {
+          "name": "Update Account",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ops Admin Updated\",\n  \"status\": \"Disabled\",\n  \"credentials\": {\n    \"email\": \"ops-admin@assetsphere.com\",\n    \"password\": \"********\",\n    \"lastUpdated\": \"2026-04-23\"\n  }\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/accounts/{{accountId}}"
+          }
+        },
+        {
+          "name": "Regenerate Backup Codes",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/accounts/{{accountId}}/regenerate-backup-codes"
+          }
+        },
+        {
+          "name": "Delete Account",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/accounts/{{accountId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 - Hardware",
+      "item": [
+        {
+          "name": "List Hardware",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/hardware" }
+        },
+        {
+          "name": "Create Hardware",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"MacBook Pro 14\",\n  \"type\": \"Laptop\",\n  \"serialNumber\": \"MBP-2026-001\",\n  \"assignedToId\": \"{{employeeId}}\",\n  \"credentials\": {\n    \"password\": \"mbp@2026\"\n  },\n  \"notes\": \"Issued for client demos\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/hardware"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json && json.data && json.data.id) {",
+                  "  pm.collectionVariables.set('hardwareId', json.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Hardware",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"MacBook Pro 14 (Updated)\",\n  \"notes\": \"Moved to PMO inventory\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/hardware/{{hardwareId}}"
+          }
+        },
+        {
+          "name": "Assign Hardware",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"assignedToId\": \"{{employeeId}}\"\n}" },
+            "url": "{{baseUrl}}/api/v1/hardware/{{hardwareId}}/assign"
+          }
+        },
+        {
+          "name": "Unassign Hardware",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{baseUrl}}/api/v1/hardware/{{hardwareId}}/assign"
+          }
+        },
+        {
+          "name": "Delete Hardware",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/hardware/{{hardwareId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 - Tools",
+      "item": [
+        {
+          "name": "List Tools",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/tools" }
+        },
+        {
+          "name": "Create Tool",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"GitHub Enterprise\",\n  \"status\": \"Active\",\n  \"linkedAccountId\": \"{{accountId}}\",\n  \"assignedToId\": \"{{employeeId}}\",\n  \"credentials\": {\n    \"email\": \"ops@assetsphere.com\",\n    \"password\": \"github@123\",\n    \"customFields\": [\n      {\n        \"key\": \"Org\",\n        \"value\": \"AssetSphere\"\n      }\n    ]\n  }\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/tools"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json && json.data && json.data.id) {",
+                  "  pm.collectionVariables.set('toolId', json.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Tool",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"GitHub Enterprise (Updated)\",\n  \"status\": \"Expired\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/tools/{{toolId}}"
+          }
+        },
+        {
+          "name": "Assign Tool",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"assignedToId\": \"{{employeeId}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/tools/{{toolId}}/assign"
+          }
+        },
+        {
+          "name": "Unassign Tool",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": "{{baseUrl}}/api/v1/tools/{{toolId}}/assign"
+          }
+        },
+        {
+          "name": "Delete Tool",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/tools/{{toolId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 - Subscriptions",
+      "item": [
+        {
+          "name": "List Subscriptions",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/subscriptions" }
+        },
+        {
+          "name": "Create Subscription",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Figma Org\",\n  \"vendor\": \"Figma\",\n  \"type\": \"SaaS\",\n  \"cost\": 120,\n  \"billingCycle\": \"Monthly\",\n  \"purchaseDate\": \"2026-04-01\",\n  \"renewalDate\": \"2026-05-01\",\n  \"status\": \"Active\",\n  \"assignmentScope\": \"Team\",\n  \"assignedToIds\": [\"{{employeeId}}\"],\n  \"linkedAccountId\": \"{{accountId}}\",\n  \"credentials\": {\n    \"email\": \"design@assetsphere.com\",\n    \"password\": \"figma@2026\",\n    \"lastUpdated\": \"2026-04-22\"\n  },\n  \"alertDays\": [30, 7, 1]\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/subscriptions"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json && json.data && json.data.id) {",
+                  "  pm.collectionVariables.set('subscriptionId', json.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Subscription",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Cancelled\",\n  \"notes\": \"Cancelled after contract end\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/subscriptions/{{subscriptionId}}"
+          }
+        },
+        {
+          "name": "Delete Subscription",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/subscriptions/{{subscriptionId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 - Projects",
+      "item": [
+        {
+          "name": "List Projects",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/projects" }
+        },
+        {
+          "name": "Create Project",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Client Portal\",\n  \"clientName\": \"Acme Corp\",\n  \"status\": \"Active\",\n  \"startDate\": \"2026-04-15\",\n  \"projectManager\": \"{{employeeId}}\",\n  \"members\": [\n    {\n      \"employeeId\": \"{{employeeId}}\",\n      \"role\": \"Developer\"\n    }\n  ],\n  \"linkedAccountIds\": [\"{{accountId}}\"],\n  \"subscriptionIds\": [\"{{subscriptionId}}\"],\n  \"notes\": \"Initial delivery scope\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/projects"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json && json.data && json.data.id) {",
+                  "  pm.collectionVariables.set('projectId', json.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Project",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Completed\",\n  \"notes\": \"Project closed successfully\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/projects/{{projectId}}"
+          }
+        },
+        {
+          "name": "Update Members",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"members\": [\n    {\n      \"employeeId\": \"{{employeeId}}\",\n      \"role\": \"Team Lead\"\n    }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/projects/{{projectId}}/members"
+          }
+        },
+        {
+          "name": "Delete Project",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/projects/{{projectId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 - Activity",
+      "item": [
+        {
+          "name": "List Activities",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/activities?limit=20" }
+        }
+      ]
+    },
+    {
+      "name": "10 - Vault",
+      "item": [
+        {
+          "name": "Get Vault",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/vault" }
+        },
+        {
+          "name": "Reveal Secret",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"encrypted\": {\n    \"iv\": \"<iv>\",\n    \"tag\": \"<tag>\",\n    \"ciphertext\": \"<ciphertext>\"\n  }\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/vault/reveal"
+          }
+        }
+      ]
+    },
+    {
+      "name": "11 - Dashboard",
+      "item": [
+        {
+          "name": "Dashboard Stats",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/dashboard/stats" }
+        },
+        {
+          "name": "Dashboard Alerts",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/dashboard/alerts" }
+        },
+        {
+          "name": "Dashboard Activity",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/dashboard/activity?limit=10" }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000" },
+    { "key": "adminEmail", "value": "admin@assetsphere.com" },
+    { "key": "adminPassword", "value": "admin123" },
+    { "key": "accessToken", "value": "" },
+    { "key": "refreshToken", "value": "" },
+    { "key": "userId", "value": "" },
+    { "key": "employeeId", "value": "" },
+    { "key": "accountId", "value": "" },
+    { "key": "hardwareId", "value": "" },
+    { "key": "toolId", "value": "" },
+    { "key": "subscriptionId", "value": "" },
+    { "key": "projectId", "value": "" }
+  ]
+}
