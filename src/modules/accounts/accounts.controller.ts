@@ -37,6 +37,12 @@ export class AccountsController {
     return { data: await this.accountsService.update(id, body) };
   }
 
+  @Get(':id/reveal')
+  @Permissions('vault.reveal_passwords')
+  async reveal(@Param('id') id: string) {
+    return { data: await this.accountsService.reveal(id) };
+  }
+
   @Post(':id/regenerate-backup-codes')
   @Permissions('accounts.edit')
   async regenerateBackupCodes(@Param('id') id: string) {

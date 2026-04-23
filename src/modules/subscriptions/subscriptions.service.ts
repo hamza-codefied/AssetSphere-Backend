@@ -67,6 +67,18 @@ export class SubscriptionsService {
     return this.maskedAndRecompute(updated);
   }
 
+  async reveal(id: string) {
+    const doc = await this.findById(id);
+    const creds = (doc.toObject() as unknown as Record<string, unknown>)
+      .credentials as Record<string, unknown> | undefined;
+    const result: Record<string, unknown> = {};
+    if (!creds) return result;
+    if (this.isEncryptedValue(creds.password)) {
+      result.password = this.cryptoService.decrypt(creds.password);
+    }
+    return result;
+  }
+
   async remove(id: string) {
     const deleted = await this.subscriptionModel.findByIdAndDelete(id).exec();
     if (!deleted) throw new NotFoundException('Subscription not found');
@@ -74,7 +86,7 @@ export class SubscriptionsService {
     return this.masked(deleted);
   }
 
-  private async findById(id: string) {
+  async findById(id: string) {
     if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Subscription not found');
     const doc = await this.subscriptionModel.findById(id).exec();
     if (!doc) throw new NotFoundException('Subscription not found');

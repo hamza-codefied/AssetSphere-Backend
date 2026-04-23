@@ -106,6 +106,30 @@ export class ToolsService {
     return this.masked(updated);
   }
 
+  async reveal(id: string) {
+    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Tool not found');
+    const doc = await this.toolModel.findById(id).exec();
+    if (!doc) throw new NotFoundException('Tool not found');
+    const creds = (doc.toObject() as unknown as Record<string, unknown>)
+      .credentials as Record<string, unknown> | undefined;
+    const result: Record<string, unknown> = {};
+    if (!creds) return result;
+    if (this.isEncryptedValue(creds.password)) {
+      result.password = this.cryptoService.decrypt(creds.password);
+    }
+    if (Array.isArray(creds.customFields)) {
+      result.customFields = (creds.customFields as Array<Record<string, unknown>>).map(
+        (field) => ({
+          key: field.key,
+          value: this.isEncryptedValue(field.value)
+            ? this.cryptoService.decrypt(field.value)
+            : field.value,
+        }),
+      );
+    }
+    return result;
+  }
+
   async remove(id: string) {
     const deleted = await this.toolModel.findByIdAndDelete(id).exec();
     if (!deleted) throw new NotFoundException('Tool not found');

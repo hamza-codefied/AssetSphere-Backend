@@ -38,6 +38,12 @@ export class ToolsController {
     return { data: await this.toolsService.assign(id, body) };
   }
 
+  @Get(':id/reveal')
+  @Permissions('vault.reveal_passwords')
+  async reveal(@Param('id') id: string) {
+    return { data: await this.toolsService.reveal(id) };
+  }
+
   @Delete(':id')
   @Permissions('tools.delete')
   async remove(@Param('id') id: string) {

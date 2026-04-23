@@ -1,4 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -29,6 +38,12 @@ export class SubscriptionsController {
   @Permissions('subscriptions.edit')
   async update(@Param('id') id: string, @Body() body: UpdateSubscriptionDto) {
     return { data: await this.subscriptionsService.update(id, body) };
+  }
+
+  @Get(':id/reveal')
+  @Permissions('vault.reveal_passwords')
+  async reveal(@Param('id') id: string) {
+    return { data: await this.subscriptionsService.reveal(id) };
   }
 
   @Delete(':id')

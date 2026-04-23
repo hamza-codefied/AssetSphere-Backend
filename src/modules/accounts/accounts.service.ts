@@ -77,6 +77,43 @@ export class AccountsService {
     return this.masked(deleted);
   }
 
+  async reveal(id: string) {
+    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Account not found');
+    const doc = await this.accountModel.findById(id).exec();
+    if (!doc) throw new NotFoundException('Account not found');
+    const plain = doc.toObject() as AnyRecord;
+    const creds = (plain.credentials ?? {}) as AnyRecord;
+    const result: AnyRecord = {};
+
+    if (this.isEncryptedValue(creds.password)) {
+      result.password = this.cryptoService.decrypt(creds.password);
+    }
+
+    if (creds.twoFactor) {
+      const tf: AnyRecord = {};
+      if (this.isEncryptedValue(creds.twoFactor.secret)) {
+        tf.secret = this.cryptoService.decrypt(creds.twoFactor.secret);
+      }
+      if (Array.isArray(creds.twoFactor.backupCodes)) {
+        tf.backupCodes = creds.twoFactor.backupCodes.map((code: unknown) =>
+          this.isEncryptedValue(code) ? this.cryptoService.decrypt(code) : code,
+        );
+      }
+      if (Object.keys(tf).length > 0) result.twoFactor = tf;
+    }
+
+    if (Array.isArray(creds.customFields)) {
+      result.customFields = creds.customFields.map((field: AnyRecord) => ({
+        key: field.key,
+        value: this.isEncryptedValue(field.value)
+          ? this.cryptoService.decrypt(field.value)
+          : field.value,
+      }));
+    }
+
+    return result;
+  }
+
   async regenerateBackupCodes(id: string) {
     const account = await this.accountModel.findById(id).exec();
     if (!account) throw new NotFoundException('Account not found');

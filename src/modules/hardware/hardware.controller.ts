@@ -38,6 +38,12 @@ export class HardwareController {
     return { data: await this.hardwareService.assign(id, body) };
   }
 
+  @Get(':id/reveal')
+  @Permissions('vault.reveal_passwords')
+  async reveal(@Param('id') id: string) {
+    return { data: await this.hardwareService.reveal(id) };
+  }
+
   @Delete(':id')
   @Permissions('hardware.delete')
   async remove(@Param('id') id: string) {
