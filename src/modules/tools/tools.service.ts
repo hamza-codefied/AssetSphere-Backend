@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -36,7 +37,9 @@ export class ToolsService {
       assignedToId,
       expiryDate: payload.expiryDate,
       status: payload.status ?? 'Active',
-      credentials: this.encryptCredentials(payload.credentials as unknown as Record<string, unknown> | undefined),
+      credentials: this.encryptCredentials(
+        payload.credentials as unknown as Record<string, unknown> | undefined,
+      ),
     });
 
     await this.syncEmployeeToolCounts(assignedToId);
@@ -50,7 +53,8 @@ export class ToolsService {
   }
 
   async findById(id: string) {
-    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Tool not found');
+    if (!Types.ObjectId.isValid(id))
+      throw new NotFoundException('Tool not found');
     const doc = await this.toolModel.findById(id).exec();
     if (!doc) throw new NotFoundException('Tool not found');
     return doc;
@@ -62,7 +66,8 @@ export class ToolsService {
 
     const update: Record<string, unknown> = {};
     if (typeof payload.name === 'string') update.name = payload.name.trim();
-    if (typeof payload.expiryDate === 'string') update.expiryDate = payload.expiryDate;
+    if (typeof payload.expiryDate === 'string')
+      update.expiryDate = payload.expiryDate;
     if (payload.status) update.status = payload.status;
 
     if (payload.linkedAccountId !== undefined) {
@@ -73,7 +78,7 @@ export class ToolsService {
     if (payload.credentials) {
       update.credentials = this.encryptCredentials(
         payload.credentials as unknown as Record<string, unknown>,
-        current.credentials as Record<string, unknown> | undefined,
+        current.credentials,
       );
     }
 
@@ -86,7 +91,10 @@ export class ToolsService {
       .exec();
     if (!updated) throw new NotFoundException('Tool not found');
 
-    await this.syncEmployeeToolCounts(previousAssigneeId, this.normalizeAssignee(updated.assignedToId));
+    await this.syncEmployeeToolCounts(
+      previousAssigneeId,
+      this.normalizeAssignee(updated.assignedToId),
+    );
     await this.log(`Updated tool: ${updated.name}`, 'update');
     return this.masked(updated);
   }
@@ -101,31 +109,43 @@ export class ToolsService {
       .exec();
     if (!updated) throw new NotFoundException('Tool not found');
 
-    await this.syncEmployeeToolCounts(previousAssigneeId, this.normalizeAssignee(updated.assignedToId));
-    await this.log(assignedToId ? `Assigned tool: ${tool.name}` : `Unassigned tool: ${tool.name}`, 'assignment');
+    await this.syncEmployeeToolCounts(
+      previousAssigneeId,
+      this.normalizeAssignee(updated.assignedToId),
+    );
+    await this.log(
+      assignedToId
+        ? `Assigned tool: ${tool.name}`
+        : `Unassigned tool: ${tool.name}`,
+      'assignment',
+    );
     return this.masked(updated);
   }
 
-  async reveal(id: string) {
-    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Tool not found');
+  async reveal(id: string, role: 'admin' | 'pmo' | 'dev') {
+    if (!Types.ObjectId.isValid(id))
+      throw new NotFoundException('Tool not found');
     const doc = await this.toolModel.findById(id).exec();
     if (!doc) throw new NotFoundException('Tool not found');
     const creds = (doc.toObject() as unknown as Record<string, unknown>)
       .credentials as Record<string, unknown> | undefined;
     const result: Record<string, unknown> = {};
     if (!creds) return result;
+    if (creds.passwordLocked && role !== 'admin') {
+      throw new ForbiddenException('Password is locked by admin');
+    }
     if (this.isEncryptedValue(creds.password)) {
       result.password = this.cryptoService.decrypt(creds.password);
     }
     if (Array.isArray(creds.customFields)) {
-      result.customFields = (creds.customFields as Array<Record<string, unknown>>).map(
-        (field) => ({
-          key: field.key,
-          value: this.isEncryptedValue(field.value)
-            ? this.cryptoService.decrypt(field.value)
-            : field.value,
-        }),
-      );
+      result.customFields = (
+        creds.customFields as Array<Record<string, unknown>>
+      ).map((field) => ({
+        key: field.key,
+        value: this.isEncryptedValue(field.value)
+          ? this.cryptoService.decrypt(field.value)
+          : field.value,
+      }));
     }
     return result;
   }
@@ -133,24 +153,45 @@ export class ToolsService {
   async remove(id: string) {
     const deleted = await this.toolModel.findByIdAndDelete(id).exec();
     if (!deleted) throw new NotFoundException('Tool not found');
-    await this.syncEmployeeToolCounts(this.normalizeAssignee(deleted.assignedToId));
+    await this.syncEmployeeToolCounts(
+      this.normalizeAssignee(deleted.assignedToId),
+    );
     await this.log(`Removed tool: ${deleted.name}`, 'deletion');
     return this.masked(deleted);
   }
 
-  private async resolveAssignee(assignedToId?: string | null): Promise<string | undefined> {
+  async setPasswordLock(id: string, locked: boolean) {
+    const tool = await this.findById(id);
+    const credentials = { ...(tool.credentials ?? {}) };
+    credentials.passwordLocked = locked;
+    tool.credentials = credentials;
+    await tool.save();
+    await this.log(
+      `${locked ? 'Locked' : 'Unlocked'} tool password: ${tool.name}`,
+      'security',
+    );
+    return this.masked(tool);
+  }
+
+  private async resolveAssignee(
+    assignedToId?: string | null,
+  ): Promise<string | undefined> {
     if (!assignedToId) return undefined;
     const employee = await this.employeesService.findById(assignedToId);
     if (employee.role === 'admin') {
       throw new BadRequestException('Admin cannot be assigned tools');
     }
     if (!employee.isActive || employee.status === 'Inactive') {
-      throw new BadRequestException('Cannot assign tools to an inactive employee');
+      throw new BadRequestException(
+        'Cannot assign tools to an inactive employee',
+      );
     }
     return assignedToId;
   }
 
-  private async resolveLinkedAccount(linkedAccountId?: string | null): Promise<void> {
+  private async resolveLinkedAccount(
+    linkedAccountId?: string | null,
+  ): Promise<void> {
     if (!linkedAccountId) return;
     if (!Types.ObjectId.isValid(linkedAccountId)) {
       throw new BadRequestException('Linked account not found');
@@ -174,8 +215,14 @@ export class ToolsService {
       ...credentials,
       lastUpdated: new Date().toISOString().split('T')[0],
     };
+    if (typeof result.passwordLocked !== 'boolean')
+      result.passwordLocked = false;
 
-    if (typeof result.password === 'string' && result.password && result.password !== MASK) {
+    if (
+      typeof result.password === 'string' &&
+      result.password &&
+      result.password !== MASK
+    ) {
       result.password = this.cryptoService.encrypt(result.password);
     }
 
@@ -185,7 +232,10 @@ export class ToolsService {
         if (typeof field?.value !== 'string') return item;
         return {
           ...field,
-          value: field.value === MASK ? field.value : this.cryptoService.encrypt(field.value),
+          value:
+            field.value === MASK
+              ? field.value
+              : this.cryptoService.encrypt(field.value),
         };
       });
     }
@@ -201,7 +251,9 @@ export class ToolsService {
     const clone = { ...creds };
     if (this.isEncryptedValue(clone.password)) clone.password = MASK;
     if (Array.isArray(clone.customFields)) {
-      clone.customFields = (clone.customFields as Array<Record<string, unknown>>).map((field) => ({
+      clone.customFields = (
+        clone.customFields as Array<Record<string, unknown>>
+      ).map((field) => ({
         ...field,
         value: MASK,
       }));
@@ -225,18 +277,28 @@ export class ToolsService {
     return typeof value === 'string' ? value : value.toString();
   }
 
-  private async syncEmployeeToolCounts(...employeeIds: Array<string | undefined>) {
+  private async syncEmployeeToolCounts(
+    ...employeeIds: Array<string | undefined>
+  ) {
     const uniqueIds = Array.from(
-      new Set(employeeIds.filter((id): id is string => typeof id === 'string' && id.length > 0)),
+      new Set(
+        employeeIds.filter(
+          (id): id is string => typeof id === 'string' && id.length > 0,
+        ),
+      ),
     );
     if (uniqueIds.length === 0) return;
 
     for (const employeeId of uniqueIds) {
-      const assignedToolCount = await this.toolModel.countDocuments({ assignedToId: employeeId });
-      await this.connection.collection('employees').updateOne(
-        { _id: new Types.ObjectId(employeeId) },
-        { $set: { assignedToolCount } },
-      );
+      const assignedToolCount = await this.toolModel.countDocuments({
+        assignedToId: employeeId,
+      });
+      await this.connection
+        .collection('employees')
+        .updateOne(
+          { _id: new Types.ObjectId(employeeId) },
+          { $set: { assignedToolCount } },
+        );
     }
   }
 

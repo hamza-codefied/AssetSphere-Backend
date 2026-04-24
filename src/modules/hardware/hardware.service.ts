@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -20,7 +21,8 @@ const MASK = '********';
 @Injectable()
 export class HardwareService {
   constructor(
-    @InjectModel(Hardware.name) private readonly hardwareModel: Model<HardwareDocument>,
+    @InjectModel(Hardware.name)
+    private readonly hardwareModel: Model<HardwareDocument>,
     @InjectConnection() private readonly connection: Connection,
     private readonly employeesService: EmployeesService,
     private readonly activityLogService: ActivityLogService,
@@ -28,11 +30,13 @@ export class HardwareService {
   ) {}
 
   async create(payload: CreateHardwareDto) {
-    const serial = (payload.serialNumber?.trim() || this.generateSerial()).toUpperCase();
+    const serial = (
+      payload.serialNumber?.trim() || this.generateSerial()
+    ).toUpperCase();
     await this.assertSerialAvailable(serial);
 
     const assignedToId = await this.resolveAssignee(payload.assignedToId);
-    const status = assignedToId ? 'Assigned' : payload.status ?? 'Available';
+    const status = assignedToId ? 'Assigned' : (payload.status ?? 'Available');
 
     const created = await this.hardwareModel.create({
       name: payload.name.trim(),
@@ -40,7 +44,9 @@ export class HardwareService {
       serialNumber: serial,
       assignedToId,
       status,
-      credentials: this.encryptCredentials(payload.credentials as unknown as Record<string, unknown> | undefined),
+      credentials: this.encryptCredentials(
+        payload.credentials as unknown as Record<string, unknown> | undefined,
+      ),
       notes: payload.notes?.trim() || undefined,
     });
 
@@ -55,7 +61,8 @@ export class HardwareService {
   }
 
   async findById(id: string) {
-    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Hardware not found');
+    if (!Types.ObjectId.isValid(id))
+      throw new NotFoundException('Hardware not found');
     const doc = await this.hardwareModel.findById(id).exec();
     if (!doc) throw new NotFoundException('Hardware not found');
     return doc;
@@ -81,7 +88,7 @@ export class HardwareService {
     if (payload.credentials) {
       update.credentials = this.encryptCredentials(
         payload.credentials as unknown as Record<string, unknown>,
-        current.credentials as Record<string, unknown> | undefined,
+        current.credentials,
       );
     }
 
@@ -99,7 +106,10 @@ export class HardwareService {
       .exec();
     if (!updated) throw new NotFoundException('Hardware not found');
 
-    await this.syncEmployeeAssetCounts(previousAssigneeId, this.normalizeAssignee(updated.assignedToId));
+    await this.syncEmployeeAssetCounts(
+      previousAssigneeId,
+      this.normalizeAssignee(updated.assignedToId),
+    );
     await this.log(`Updated hardware: ${updated.name}`, 'update');
     return this.masked(updated);
   }
@@ -122,20 +132,29 @@ export class HardwareService {
 
     if (!updated) throw new NotFoundException('Hardware not found');
 
-    await this.syncEmployeeAssetCounts(previousAssigneeId, this.normalizeAssignee(updated.assignedToId));
-    const action = assignedToId ? `Assigned hardware: ${hardware.name}` : `Unassigned hardware: ${hardware.name}`;
+    await this.syncEmployeeAssetCounts(
+      previousAssigneeId,
+      this.normalizeAssignee(updated.assignedToId),
+    );
+    const action = assignedToId
+      ? `Assigned hardware: ${hardware.name}`
+      : `Unassigned hardware: ${hardware.name}`;
     await this.log(action, 'assignment');
     return this.masked(updated);
   }
 
-  async reveal(id: string) {
-    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Hardware not found');
+  async reveal(id: string, role: 'admin' | 'pmo' | 'dev') {
+    if (!Types.ObjectId.isValid(id))
+      throw new NotFoundException('Hardware not found');
     const doc = await this.hardwareModel.findById(id).exec();
     if (!doc) throw new NotFoundException('Hardware not found');
     const creds = (doc.toObject() as unknown as Record<string, unknown>)
       .credentials as Record<string, unknown> | undefined;
     const result: Record<string, unknown> = {};
     if (!creds) return result;
+    if (creds.passwordLocked && role !== 'admin') {
+      throw new ForbiddenException('Password is locked by admin');
+    }
     if (this.isEncryptedValue(creds.password)) {
       result.password = this.cryptoService.decrypt(creds.password);
     }
@@ -148,19 +167,40 @@ export class HardwareService {
   async remove(id: string) {
     const deleted = await this.hardwareModel.findByIdAndDelete(id).exec();
     if (!deleted) throw new NotFoundException('Hardware not found');
-    await this.syncEmployeeAssetCounts(this.normalizeAssignee(deleted.assignedToId));
+    await this.syncEmployeeAssetCounts(
+      this.normalizeAssignee(deleted.assignedToId),
+    );
     await this.log(`Removed hardware: ${deleted.name}`, 'deletion');
     return this.masked(deleted);
   }
 
+  async setPasswordLock(id: string, locked: boolean) {
+    const hardware = await this.findById(id);
+    const credentials = { ...(hardware.credentials ?? {}) };
+    credentials.passwordLocked = locked;
+    hardware.credentials = credentials;
+    await hardware.save();
+    await this.log(
+      `${locked ? 'Locked' : 'Unlocked'} hardware password: ${hardware.name}`,
+      'security',
+    );
+    return this.masked(hardware);
+  }
+
   private async assertSerialAvailable(serialNumber: string, ignoreId?: string) {
-    const existing = await this.hardwareModel.findOne({ serialNumber }).select('_id').lean().exec();
+    const existing = await this.hardwareModel
+      .findOne({ serialNumber })
+      .select('_id')
+      .lean()
+      .exec();
     if (!existing) return;
     if (ignoreId && existing._id?.toString() === ignoreId) return;
     throw new ConflictException('Serial number already in use');
   }
 
-  private async resolveAssignee(assignedToId?: string | null): Promise<string | undefined> {
+  private async resolveAssignee(
+    assignedToId?: string | null,
+  ): Promise<string | undefined> {
     if (!assignedToId) return undefined;
 
     const employee = await this.employeesService.findById(assignedToId);
@@ -168,7 +208,9 @@ export class HardwareService {
       throw new BadRequestException('Admin cannot be assigned hardware');
     }
     if (!employee.isActive || employee.status === 'Inactive') {
-      throw new BadRequestException('Cannot assign hardware to an inactive employee');
+      throw new BadRequestException(
+        'Cannot assign hardware to an inactive employee',
+      );
     }
 
     return assignedToId;
@@ -185,8 +227,14 @@ export class HardwareService {
       ...credentials,
       lastUpdated: new Date().toISOString().split('T')[0],
     };
+    if (typeof result.passwordLocked !== 'boolean')
+      result.passwordLocked = false;
 
-    if (typeof result.password === 'string' && result.password && result.password !== MASK) {
+    if (
+      typeof result.password === 'string' &&
+      result.password &&
+      result.password !== MASK
+    ) {
       result.password = this.cryptoService.encrypt(result.password);
     }
 
@@ -230,9 +278,15 @@ export class HardwareService {
     return typeof value === 'string' ? value : value.toString();
   }
 
-  private async syncEmployeeAssetCounts(...employeeIds: Array<string | undefined>) {
+  private async syncEmployeeAssetCounts(
+    ...employeeIds: Array<string | undefined>
+  ) {
     const uniqueIds = Array.from(
-      new Set(employeeIds.filter((id): id is string => typeof id === 'string' && id.length > 0)),
+      new Set(
+        employeeIds.filter(
+          (id): id is string => typeof id === 'string' && id.length > 0,
+        ),
+      ),
     );
     if (uniqueIds.length === 0) return;
 
@@ -241,10 +295,12 @@ export class HardwareService {
         assignedToId: employeeId,
         status: 'Assigned',
       });
-      await this.connection.collection('employees').updateOne(
-        { _id: new Types.ObjectId(employeeId) },
-        { $set: { assignedAssetCount } },
-      );
+      await this.connection
+        .collection('employees')
+        .updateOne(
+          { _id: new Types.ObjectId(employeeId) },
+          { $set: { assignedAssetCount } },
+        );
     }
   }
 

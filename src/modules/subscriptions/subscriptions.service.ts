@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -8,7 +9,10 @@ import { Connection, Model, Types } from 'mongoose';
 import { EncryptedValue } from '../../common/crypto/crypto.types';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { EmployeesService } from '../employees/employees.service';
-import { Subscription, SubscriptionDocument } from './schemas/subscription.schema';
+import {
+  Subscription,
+  SubscriptionDocument,
+} from './schemas/subscription.schema';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
@@ -34,7 +38,9 @@ export class SubscriptionsService {
         name: payload.name.trim(),
         vendor: payload.vendor.trim(),
         notes: payload.notes?.trim(),
-        credentials: this.encryptCredentials(payload.credentials as unknown as Record<string, unknown> | undefined),
+        credentials: this.encryptCredentials(
+          payload.credentials as unknown as Record<string, unknown> | undefined,
+        ),
       }),
     );
     await this.log(`Added subscription: ${created.name}`, 'creation');
@@ -42,7 +48,10 @@ export class SubscriptionsService {
   }
 
   async findAll() {
-    const docs = await this.subscriptionModel.find().sort({ createdAt: -1 }).exec();
+    const docs = await this.subscriptionModel
+      .find()
+      .sort({ createdAt: -1 })
+      .exec();
     return docs.map((doc) => this.maskedAndRecompute(doc));
   }
 
@@ -51,28 +60,35 @@ export class SubscriptionsService {
     const update: Record<string, unknown> = { ...payload };
     if (payload.name) update.name = payload.name.trim();
     if (payload.vendor) update.vendor = payload.vendor.trim();
-    if (payload.notes !== undefined) update.notes = payload.notes?.trim() || undefined;
+    if (payload.notes !== undefined)
+      update.notes = payload.notes?.trim() || undefined;
     if (payload.credentials) {
       const current = await this.findById(id);
       update.credentials = this.encryptCredentials(
         payload.credentials as unknown as Record<string, unknown>,
-        current.credentials as Record<string, unknown> | undefined,
+        current.credentials,
       );
     }
     const updated = await this.subscriptionModel
-      .findByIdAndUpdate(id, this.recompute(update), { new: true, runValidators: true })
+      .findByIdAndUpdate(id, this.recompute(update), {
+        new: true,
+        runValidators: true,
+      })
       .exec();
     if (!updated) throw new NotFoundException('Subscription not found');
     await this.log(`Updated subscription: ${updated.name}`, 'update');
     return this.maskedAndRecompute(updated);
   }
 
-  async reveal(id: string) {
+  async reveal(id: string, role: 'admin' | 'pmo' | 'dev') {
     const doc = await this.findById(id);
     const creds = (doc.toObject() as unknown as Record<string, unknown>)
       .credentials as Record<string, unknown> | undefined;
     const result: Record<string, unknown> = {};
     if (!creds) return result;
+    if (creds.passwordLocked && role !== 'admin') {
+      throw new ForbiddenException('Password is locked by admin');
+    }
     if (this.isEncryptedValue(creds.password)) {
       result.password = this.cryptoService.decrypt(creds.password);
     }
@@ -86,8 +102,22 @@ export class SubscriptionsService {
     return this.masked(deleted);
   }
 
+  async setPasswordLock(id: string, locked: boolean) {
+    const subscription = await this.findById(id);
+    const credentials = { ...(subscription.credentials ?? {}) };
+    credentials.passwordLocked = locked;
+    subscription.credentials = credentials;
+    await subscription.save();
+    await this.log(
+      `${locked ? 'Locked' : 'Unlocked'} subscription password: ${subscription.name}`,
+      'security',
+    );
+    return this.masked(subscription);
+  }
+
   async findById(id: string) {
-    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Subscription not found');
+    if (!Types.ObjectId.isValid(id))
+      throw new NotFoundException('Subscription not found');
     const doc = await this.subscriptionModel.findById(id).exec();
     if (!doc) throw new NotFoundException('Subscription not found');
     return doc;
@@ -121,10 +151,14 @@ export class SubscriptionsService {
       for (const employeeId of payload.assignedToIds) {
         const employee = await this.employeesService.findById(employeeId);
         if (employee.role === 'admin') {
-          throw new BadRequestException('Admin cannot be assigned to subscriptions');
+          throw new BadRequestException(
+            'Admin cannot be assigned to subscriptions',
+          );
         }
         if (!employee.isActive || employee.status === 'Inactive') {
-          throw new BadRequestException('Cannot assign inactive employee to subscription');
+          throw new BadRequestException(
+            'Cannot assign inactive employee to subscription',
+          );
         }
       }
     }
@@ -149,7 +183,13 @@ export class SubscriptionsService {
       ...credentials,
       lastUpdated: new Date().toISOString().split('T')[0],
     };
-    if (typeof result.password === 'string' && result.password && result.password !== MASK) {
+    if (typeof result.passwordLocked !== 'boolean')
+      result.passwordLocked = false;
+    if (
+      typeof result.password === 'string' &&
+      result.password &&
+      result.password !== MASK
+    ) {
       result.password = this.cryptoService.encrypt(result.password);
     }
     return result;
@@ -157,7 +197,9 @@ export class SubscriptionsService {
 
   private masked(doc: SubscriptionDocument): Record<string, unknown> {
     const plain = doc.toObject() as unknown as Record<string, unknown>;
-    const credentials = plain.credentials as Record<string, unknown> | undefined;
+    const credentials = plain.credentials as
+      | Record<string, unknown>
+      | undefined;
     if (!credentials) return plain;
     const cloned = { ...credentials };
     if (this.isEncryptedValue(cloned.password)) cloned.password = MASK;

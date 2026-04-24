@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -40,8 +50,27 @@ export class HardwareController {
 
   @Get(':id/reveal')
   @Permissions('vault.reveal_passwords')
-  async reveal(@Param('id') id: string) {
-    return { data: await this.hardwareService.reveal(id) };
+  async reveal(
+    @Param('id') id: string,
+    @Req() req: { user?: { role?: 'admin' | 'pmo' | 'dev' } },
+  ) {
+    return {
+      data: await this.hardwareService.reveal(id, req.user?.role ?? 'dev'),
+    };
+  }
+
+  @Patch(':id/password-lock')
+  @Permissions('vault.lock_passwords')
+  async setPasswordLock(
+    @Param('id') id: string,
+    @Body() body: { locked: boolean },
+  ) {
+    return {
+      data: await this.hardwareService.setPasswordLock(
+        id,
+        Boolean(body.locked),
+      ),
+    };
   }
 
   @Delete(':id')

@@ -32,6 +32,7 @@ const rolePermissions: Record<UserRole, string[]> = {
     'projects.edit',
     'projects.manage_members',
     'vault.view',
+    'vault.reveal_passwords',
     'dashboard.view',
     'dashboard.activity',
     'guide.view',
@@ -45,6 +46,7 @@ const rolePermissions: Record<UserRole, string[]> = {
     'projects.view',
     'dashboard.view',
     'guide.view',
+    'vault.reveal_passwords',
   ],
 };
 
@@ -61,7 +63,9 @@ export class PermissionsGuard implements CanActivate {
 
     if (!requiredPermissions.length) return true;
 
-    const request = context.switchToHttp().getRequest<{ user?: { role?: UserRole } }>();
+    const request = context
+      .switchToHttp()
+      .getRequest<{ user?: { role?: UserRole } }>();
     const role = request.user?.role;
     if (!role) {
       // JwtAuthGuard (registered earlier) would have rejected unauthenticated
@@ -70,7 +74,9 @@ export class PermissionsGuard implements CanActivate {
     }
     const granted = rolePermissions[role] ?? [];
     const hasWildcard = granted.includes('*');
-    const allowed = requiredPermissions.every((permission) => hasWildcard || granted.includes(permission));
+    const allowed = requiredPermissions.every(
+      (permission) => hasWildcard || granted.includes(permission),
+    );
     if (!allowed) throw new ForbiddenException('Insufficient permissions');
     return true;
   }
